@@ -1,0 +1,99 @@
+import matplotlib.pyplot as plt
+from matplotlib.widgets import RadioButtons
+import numpy as np
+import pandas as pd
+
+# ----------------------------------------------------------------------
+# load data
+# ----------------------------------------------------------------------
+df22 = pd.read_csv("MnAs_GaAs_summer_project_sample_overview1(#5033 @ #5022).csv", sep=';')
+df23 = pd.read_csv("MnAs_GaAs_summer_project_sample_overview1(#5033 @ #5023).csv", sep=';') 
+df24 = pd.read_csv("MnAs_GaAs_summer_project_sample_overview1(#5033 @ #5024).csv", sep=';') 
+num_categories = ['A', 'C', 'G']
+binary_flags   = ['Nanocluster?', 'Top', 'Bottom', 'Au particle?']
+rng = np.random.default_rng(42)
+
+data_center = []
+for df in [df22, df23, df24]:
+    df = df.dropna(subset=num_categories, how='all').copy()
+    for cat in num_categories:
+        df[cat] = pd.to_numeric(df[cat], errors='coerce')
+    df["Seg_pos"] = df["G"] / (df["A"] + df["C"] + df["G"]) * 100
+    data_center.append(df)
+sample_names = ["5s (#5022)", "10s (#5023)", "15s (#5024)"]
+
+# color for each possible binary value
+value_colors = {'Yes': 'tab:red', 'No': 'tab:blue', '?': 'gray', 'NA': 'lightgray'}
+
+# ----------------------------------------------------------------------
+# figure layout: main plot on the right, radio buttons on the left
+# ----------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(10, 6))
+plt.subplots_adjust(left=0.28)   # make room for the control panel
+
+ax_radio = plt.axes([0.03, 0.4, 0.18, 0.25])   # [left, bottom, width, height]
+radio = RadioButtons(ax_radio, ['None'] + binary_flags)
+ax_radio.set_title("Color by:", fontsize=10)
+
+def draw(color_by):
+    ax.clear()
+    seen = set()
+    for xpos, df in enumerate(data_center):
+        shifter = 0
+        if color_by == 'None':
+            vals = df["Seg_pos"].dropna().values
+            ax.scatter(np.full(len(vals), xpos), vals,
+                       s=70, alpha=0.8, edgecolor='k', c='tab:blue', zorder=3)
+        else:
+            sub = df[["Seg_pos", color_by]].dropna(subset=["Seg_pos"])
+            flagvals = sub[color_by].fillna('NA')      # show missing flags too
+            
+            for val in flagvals.unique():
+                rows = sub[flagvals == val]
+                color = value_colors.get(val, 'green')
+                label = f"{color_by} = {val}"
+                jitter = rng.uniform(-0.08, 0.08, size=len(rows))
+                ax.scatter(xpos + jitter, rows["Seg_pos"].values,
+                           s=70, alpha=0.8, edgecolor='k', c=color, zorder=3,
+                           label=label if label not in seen else None)
+                seen.add(label)
+                sub_value = rows["Seg_pos"].values
+                sub_mean = sub_value.mean()
+                sub_SD = sub_value.std(ddof=1)
+                shifter += 0.03
+                bar_xpos = xpos + 0.15 + shifter
+                ax.errorbar(bar_xpos, sub_mean, yerr=sub_SD, fmt='o',
+                            c=color,capsize=5, markersize=8, zorder=4)
+                ax.annotate(f"{sub_mean:.1f}", (bar_xpos, sub_mean),
+                            textcoords="offset points", xytext=(8, 0),
+                            va='center', fontsize=8, color=color)
+                
+
+        # mean +/- SD across all points in the category
+        vals = df["Seg_pos"].dropna().values
+        mean = vals.mean()
+        SD = vals.std(ddof=1) if len(vals) >= 2 else 0
+        ax.errorbar(xpos + 0.15, mean, yerr=SD, fmt='o',
+                    color='black', capsize=5, markersize=8, zorder=4)
+        ax.annotate(f"{mean:.1f}", (xpos + 0.15, mean),
+                    textcoords="offset points", xytext=(8, 0),
+                    va='center', fontsize=8, color='black')
+
+    ax.set_xticks(range(len(data_center)))
+    ax.set_xticklabels(sample_names)
+    ax.set_xlabel("Samples")
+    ax.set_ylabel("Procentage [%]")
+    ax.set_yticks(range(0, 101, 10))
+    title = "Position of bottom segment by data sample"
+    if color_by != 'None':
+        title += f"  —  colored by {color_by}"
+    ax.set_title(title)
+    ax.grid(True, axis='y', alpha=0.3)
+    if color_by != 'None':
+        ax.legend(fontsize=8)
+    fig.canvas.draw_idle()
+
+
+radio.on_clicked(draw)
+draw('None')      # initial render
+plt.show()
